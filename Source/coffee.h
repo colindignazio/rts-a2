@@ -15,5 +15,6 @@ void initializeCoffee(Coffee);
 Coffee getSelected(void);
 Coffee changeSelected(void);
 Led_TypeDef getLEDForSelected(void);
+uint32_t getBrewDurations(Coffee);
 
 #endif

@@ -12,8 +12,8 @@
 #include "timers.h"
 #include "semphr.h"
 
-#include "../coffee.h"
-#include "../led.h"
+#include "coffee.h"
+#include "led.h"
 //******************************************************************************
 
 void vButtonUpdate(void *);
@@ -23,20 +23,18 @@ void vLedBlinkGreen(void *);
 void vLedBlinkOrange(void *);
 void vChangeSelection(void *);
 void vBrewCoffee(void *);
+void vBrewCoffeeType(void *);
+void vTimerHandle(TimerHandle_t);
 
 #define STACK_SIZE_MIN	128	/* usStackDepth	- the stack size DEFINED IN WORDS.*/
 
 //times are all in ms
 #define BLINK_TOGGLE 500
-#define SHORT_PRESS 100
-#define LONG_PRESS 1000000
+#define SHORT_PRESS 10
+#define LONG_PRESS 100
 #define DOUBLE_CLICK_TIME 500
 #define ALERT_TIME 100
 
-#define BREW_TIME_ESPRESSO 3000
-#define BREW_TIME_LATTE 5000
-#define BREW_TIME_MOCHA 7000
-#define BREW_TIME_BLACK 10000
 
 const static Coffee INITIAL_COFFEE = ESPRESSO;
 
@@ -47,6 +45,8 @@ static xSemaphoreHandle xButtonSemaphore;
 static xSemaphoreHandle xBrewSemaphore;
 
 static xSemaphoreHandle xBrewSemaphores[LEDn];
+static TaskHandle_t xBrewTask[LEDn];
+static TimerHandle_t xBrewTimer[LEDn];
 
 //******************************************************************************
 int main(void) {
@@ -65,6 +65,9 @@ int main(void) {
 	*/
 	int i;
 	
+	//need to do this better
+	int leds[4] = {0, 1, 2, 3};
+	
 	NVIC_PriorityGroupConfig( NVIC_PriorityGroup_4 );
 	
 	STM_EVAL_PBInit(BUTTON_USER, BUTTON_MODE_GPIO);
@@ -81,16 +84,23 @@ int main(void) {
 	
 	for(i = 0; i < LEDn; i++) {
 		vSemaphoreCreateBinary(xBrewSemaphores[i]);
+		xTaskCreate( vBrewCoffeeType, (const char*)"Brew Coffee Type", 
+			STACK_SIZE_MIN, (void *)&leds[i], tskIDLE_PRIORITY + 2, &xBrewTask[i]);
+		vTaskSuspend(xBrewTask[i]);
+		xBrewTimer[i] = xTimerCreate("Brew Timer", getBrewDurations((Coffee) i) / portTICK_RATE_MS, pdFALSE, (void *)&leds[i], vTimerHandle);
 	}
 	
 	xTaskCreate( vButtonUpdate, (const char*)"Button Update", 
 		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY + 1, taskHandleButton );
 	xTaskCreate( vChangeSelection, (const char*)"Change Selection", 
-		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY, NULL );
+		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY + 1, NULL );
 	xTaskCreate( vBrewCoffee, (const char*)"Brew Coffee", 
-		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY, NULL );
+		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY + 1, NULL );
 	
 	vTaskStartScheduler();
+	
+	// Should not reach here
+	for(;;);
 }
 
 void vButtonUpdate(void *pvParameters) {
@@ -112,14 +122,24 @@ void vButtonUpdate(void *pvParameters) {
 		else {
 			debounce_count = 0;
 		}
+		
+		vTaskDelay(10 / portTICK_RATE_MS);
 	}
 }
 
+// Stop brewing task, should play sound here as well
+void vTimerHandle(TimerHandle_t xTimer) {
+	Led_TypeDef led = *(Led_TypeDef *)(pvTimerGetTimerID(xTimer));
+	turnOffLED(led);
+	xSemaphoreGive(xBrewSemaphores[led]);
+	vTaskSuspend(xBrewTask[led]);
+}
+
 void vBrewCoffeeType(void *pvParameters) {
-	Led_TypeDef selectedLED = *((Led_TypeDef *)pvParameters);
+	Led_TypeDef selectedLED = *((Led_TypeDef *)pvParameters);	
 	
 	for(;;) {
-		// Code to brew goes here
+		blinkLED(selectedLED);
 	}
 }
 
@@ -132,11 +152,11 @@ void vBrewCoffee(void *pvParameters) {
 			
 			// Make sure this coffee is not already brewing
 			if(xSemaphoreTake(xBrewSemaphores[selectedLED], 0) == pdTRUE) {
-				xTaskCreate( vBrewCoffeeType, (const char*)"Brew Coffee Type", 
-					STACK_SIZE_MIN, (void *) (void *)&selectedLED, tskIDLE_PRIORITY, NULL );
+				xTimerStart(xBrewTimer[selectedLED], 0);
+				vTaskResume(xBrewTask[selectedLED]);
 			}
-			
 		}
+		vTaskDelay(10 / portTICK_RATE_MS);
 	}
 }
 
@@ -148,8 +168,9 @@ void vChangeSelection(void *pvParameters) {
 			changeSelected();
 			selectedLED = getLEDForSelected();
 			resetAllLEDs();
-			blinkLED(selectedLED);
+			turnOnLED(selectedLED);
 		}
+		vTaskDelay(10 / portTICK_RATE_MS);
 	}
 }
 //******************************************************************************

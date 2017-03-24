@@ -6,5 +6,7 @@
 void initializeLEDs(Led_TypeDef);
 void blinkLED(Led_TypeDef led);
 void resetAllLEDs(void);
+void turnOnLED(Led_TypeDef);
+void turnOffLED(Led_TypeDef);
 
 #endif
