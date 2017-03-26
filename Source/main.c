@@ -114,9 +114,6 @@ int main(void) {
 	// Should not reach here
 	for(;;);
 }
-void StopAlert() {
-	GPIO_ResetBits(GPIOD, CODEC_RESET_PIN);
-}
 void vPlaySound(void *pvParameters) {
 	int i;
 	
