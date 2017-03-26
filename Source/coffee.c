@@ -7,7 +7,20 @@
 
 static Coffee selected;
 
-static Led_TypeDef getCoffeeLED(Coffee type) {
+void initializeCoffee(Coffee defaultType) {
+	selected = defaultType;
+}
+
+Coffee changeSelected() {
+	selected = (Coffee)(((uint32_t)selected + 1) % 4);
+	return selected;
+}
+
+Led_TypeDef getLEDForSelected() {
+	return getLEDForCoffeeType(selected);
+}
+
+Led_TypeDef getLEDForCoffeeType(Coffee type) {
 	switch(type) {
 		case ESPRESSO:
 			return LED_GREEN;
@@ -20,27 +33,6 @@ static Led_TypeDef getCoffeeLED(Coffee type) {
 		default:
 			return LED_GREEN;
 	}
-}
-
-void initializeCoffee(Coffee defaultType) {
-	selected = defaultType;
-}
-
-Coffee getSelected() {
-	return selected;
-}
-
-Coffee changeSelected() {
-	selected = (Coffee)(((uint32_t)selected + 1) % 4);
-	return selected;
-}
-
-Led_TypeDef getLEDForSelected() {
-	return getCoffeeLED(selected);
-}
-
-uint32_t getCoffeeBrewTime(Coffee type) {
-	return 1;
 }
 
 uint32_t getBrewDurations(Coffee type) {

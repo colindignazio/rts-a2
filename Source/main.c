@@ -16,6 +16,7 @@
 #include "coffee.h"
 #include "led.h"
 #include "sound.h"
+#include "delay.h"
 //******************************************************************************
 
 void vButtonUpdate(void *);
@@ -24,7 +25,6 @@ void vLedBlinkRed(void *);
 void vLedBlinkGreen(void *);
 void vLedBlinkOrange(void *);
 void vBrewCoffeeType(void *);
-void vTimerHandle(TimerHandle_t);
 void vPlaySound(void *);
 
 void selectNextCoffee(void);
@@ -32,19 +32,27 @@ void brewCoffee(void);
 
 #define STACK_SIZE_MIN	128	/* usStackDepth	- the stack size DEFINED IN WORDS.*/
 
-//times are all in ms
+// times are all in ms
 #define SHORT_PRESS 10
 #define LONG_PRESS 100
+#define BLINK_TOGGLE 500
+
+// task delays in ms
+#define SOUND_DELAY 100
+#define BUTTON_DELAY 10
 
 const static Coffee INITIAL_COFFEE = ESPRESSO;
+const static uint32_t PRIORITY_BUTTON = tskIDLE_PRIORITY + 3;
+const static uint32_t PRIORITY_BREW_COFFEE = tskIDLE_PRIORITY + 1;
+const static uint32_t PRIORITY_SOUND = tskIDLE_PRIORITY + 2;
 
 static xSemaphoreHandle xSoundSemaphore;
 
 static xSemaphoreHandle xBrewSemaphores[LEDn];
-static TaskHandle_t xBrewTask[LEDn];
-static TimerHandle_t xBrewTimer[LEDn];
+static TaskHandle_t xBrewTasks[LEDn];
+static uint32_t brewCounters[LEDn];
 
-static Led_TypeDef leds[LEDn] = {LED_GREEN, LED_BLUE, LED_RED, LED_ORANGE};
+static Coffee leds[LEDn] = {ESPRESSO, LATTE, MOCHA, BLACK};
 
 //******************************************************************************
 int main(void) {
@@ -65,46 +73,54 @@ int main(void) {
 	
 	NVIC_PriorityGroupConfig( NVIC_PriorityGroup_4 );
 	
+	// Initializations
 	STM_EVAL_PBInit(BUTTON_USER, BUTTON_MODE_GPIO);
-	
 	initializeCoffee(INITIAL_COFFEE);
 	initializeLEDs(getLEDForSelected());
 	initializeSound();
+	TM_Delay_Init();
 	
 	vSemaphoreCreateBinary( xSoundSemaphore );
 	xSemaphoreTake(xSoundSemaphore, 0);
 	
+	// Create a brew task and semaphore for each Coffee type
 	for(i = 0; i < LEDn; i++) {
 		vSemaphoreCreateBinary(xBrewSemaphores[i]);
 		xTaskCreate( vBrewCoffeeType, (const char*)"Brew Coffee Type", 
-			STACK_SIZE_MIN, (void *)&leds[i], tskIDLE_PRIORITY + 2, &xBrewTask[i]);
-		vTaskSuspend(xBrewTask[i]);
-		// Putting all brew tasks at the same priority makes RTOS handle them round robin
-		xBrewTimer[i] = xTimerCreate("Brew Timer", getBrewDurations((Coffee) i) / portTICK_RATE_MS, pdFALSE, (void *)&leds[i], vTimerHandle);
+			STACK_SIZE_MIN, (void *)&leds[i], PRIORITY_BREW_COFFEE, &xBrewTasks[i]);
+		vTaskSuspend(xBrewTasks[i]);
 	}
+	
 	xTaskCreate( vButtonUpdate, (const char*)"Button Update", 
-		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY + 1, NULL );
+		STACK_SIZE_MIN, NULL, PRIORITY_BUTTON, NULL );
 	xTaskCreate( vPlaySound, (const char*)"Play Sound", 
-		STACK_SIZE_MIN, NULL, tskIDLE_PRIORITY + 1, NULL );
+		STACK_SIZE_MIN, NULL, PRIORITY_SOUND, NULL );
 	vTaskStartScheduler();
 	
 	// Should not reach here
 	for(;;);
 }
 
+/*
+ * Plays a sound to alert that a brew has completed.
+ * Can sound weird sometimes due to FreeRTOS preempting while the sound is playing.
+ */
 void vPlaySound(void *pvParameters) {
 	for(;;) {
 		if(xSemaphoreTake(xSoundSemaphore, 0) == pdTRUE) {
 			playSound();
 		}
-		vTaskDelay( 100 / portTICK_RATE_MS );
+		vTaskDelay( SOUND_DELAY / portTICK_RATE_MS );
 	}
 }
 
+/* 
+ * Poll the button for input. If a short click is detecting change the selection.
+ * If a long click is selected begin brewing.
+ */
 void vButtonUpdate(void *pvParameters) {
 	uint32_t debounce_count = 0;
 	
-	// should be doing long/short clicks using timers but for now this works
 	for(;;) {		
 		if(STM_EVAL_PBGetState(BUTTON_USER)) {
 			debounce_count++;
@@ -120,48 +136,63 @@ void vButtonUpdate(void *pvParameters) {
 		else {
 			debounce_count = 0;
 		}
-		
-		vTaskDelay(10 / portTICK_RATE_MS);
+		vTaskDelay(BUTTON_DELAY / portTICK_RATE_MS);
 	}
 }
 
-// Stop brewing task, should play sound here as well
-void vTimerHandle(TimerHandle_t xTimer) {
-	Led_TypeDef led = *(Led_TypeDef *)(pvTimerGetTimerID(xTimer));
+/*
+ * Stop brewing a Coffee type and play a sound to alert the user.
+ */
+void endBrew(Coffee coffee) {
 	prepareSound();
-	turnOffLED(led);
-	xSemaphoreGive(xBrewSemaphores[led]);
+	turnOffLED(getLEDForCoffeeType(coffee));
+	xSemaphoreGive(xBrewSemaphores[coffee]);
 	xSemaphoreGive(xSoundSemaphore);
-	vTaskSuspend(xBrewTask[led]);
+	vTaskSuspend(xBrewTasks[coffee]);
 }
 
+/*
+ * Brews a Coffee type, blinking the corresponding LED to indicatre progress.
+ * We use TM_DelayMillis here as a "busy wait" function. We need to give this
+ * task something to do so that the CPU doesn't just preempt to the next task
+ * after toggling the LED.
+ */
 void vBrewCoffeeType(void *pvParameters) {
-	Led_TypeDef selectedLED = *((Led_TypeDef *)pvParameters);	
+	Coffee coffeeType = *((Coffee *)pvParameters);	
+	Led_TypeDef ledForCoffeeType = getLEDForCoffeeType(coffeeType);
 	
 	for(;;) {
-		blinkLED(selectedLED);
+		blinkLED(ledForCoffeeType);
+		TM_DelayMillis(BLINK_TOGGLE);
+		brewCounters[coffeeType] += BLINK_TOGGLE;
+		
+		if(brewCounters[coffeeType] >= getBrewDurations(coffeeType)) {
+			endBrew(coffeeType);
+		}
 	}
 }
 
+/*
+ * Initialize the brew counter for the Coffee type being brewed and start the brewing tak.
+ */
 void brewCoffee() {
-	Led_TypeDef selectedLED;
-	
-			selectedLED = getLEDForSelected();
+	Led_TypeDef selectedLED = getLEDForSelected();
 			
-			// Make sure this coffee is not already brewing
-			if(xSemaphoreTake(xBrewSemaphores[selectedLED], 0) == pdTRUE) {
-				xTimerStart(xBrewTimer[selectedLED], 0);
-				vTaskResume(xBrewTask[selectedLED]);
-			}
+	// Make sure this coffee is not already brewing
+	if(xSemaphoreTake(xBrewSemaphores[selectedLED], 0) == pdTRUE) {
+		brewCounters[selectedLED] = 0;
+		vTaskResume(xBrewTasks[selectedLED]);
+	}
 }
 
+/*
+ * Move the user through the Coffee selection menu skipping any Coffees that are already being brewed.
+ */
 void selectNextCoffee() {
 	Led_TypeDef selectedLED;
-	
-			// Skip any coffees that are brewing
-			while(uxSemaphoreGetCount(xBrewSemaphores[changeSelected()]) < 1);
-			selectedLED = getLEDForSelected();
-			resetAllLEDs();
-			turnOnLED(selectedLED);
+	while(uxSemaphoreGetCount(xBrewSemaphores[changeSelected()]) < 1);
+	selectedLED = getLEDForSelected();
+	resetAllLEDs();
+	turnOnLED(selectedLED);
 }
 //******************************************************************************

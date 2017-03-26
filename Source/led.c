@@ -3,8 +3,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define BLINK_TOGGLE 500
-
 void initializeLEDs(Led_TypeDef initialLed) {
 	STM_EVAL_LEDInit(LED_BLUE);
 	STM_EVAL_LEDInit(LED_GREEN);
@@ -16,7 +14,6 @@ void initializeLEDs(Led_TypeDef initialLed) {
 
 void blinkLED(Led_TypeDef led) {
 	STM_EVAL_LEDToggle(led);
-	vTaskDelay( BLINK_TOGGLE / portTICK_RATE_MS );
 }
 
 void resetAllLEDs() {
