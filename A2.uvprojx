@@ -412,22 +412,32 @@
             <File>
               <FileName>coffee.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\coffee.c</FilePath>
+              <FilePath>.\Source\coffee.c</FilePath>
             </File>
             <File>
               <FileName>coffee.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\coffee.h</FilePath>
+              <FilePath>.\Source\coffee.h</FilePath>
             </File>
             <File>
               <FileName>led.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\led.c</FilePath>
+              <FilePath>.\Source\led.c</FilePath>
             </File>
             <File>
               <FileName>led.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\led.h</FilePath>
+              <FilePath>.\Source\led.h</FilePath>
+            </File>
+            <File>
+              <FileName>codec.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Source\codec.h</FilePath>
+            </File>
+            <File>
+              <FileName>codec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Source\codec.c</FilePath>
             </File>
           </Files>
         </Group>
