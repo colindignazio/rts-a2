@@ -12,11 +12,11 @@ static Led_TypeDef getCoffeeLED(Coffee type) {
 		case ESPRESSO:
 			return LED_GREEN;
 		case LATTE:
-			return LED_ORANGE;
+			return LED_BLUE;
 		case MOCHA:
 			return LED_RED;
 		case BLACK:
-			return LED_BLUE;
+			return LED_ORANGE;
 		default:
 			return LED_GREEN;
 	}

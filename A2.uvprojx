@@ -439,6 +439,16 @@
               <FileType>1</FileType>
               <FilePath>.\Source\codec.c</FilePath>
             </File>
+            <File>
+              <FileName>sound.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Source\sound.h</FilePath>
+            </File>
+            <File>
+              <FileName>sound.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Source\sound.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
