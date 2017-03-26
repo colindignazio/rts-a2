@@ -1,0 +1,5 @@
+i)  With preemption it is possible pre-empt the brewing task to run the selection task which allows for the switching of brews.  When Cooperative is used it is not possible to switch to a different brew which one is brewing because the brew task does not yield for any other task to run.  
+
+ii) Without Timeslicing the program was found to run the same as without.  
+
+iii) Lowering the processing clock speed means that the long press used to trigger the coffee brew is now shorter because the timer limit is reached faster.  The higher processing clock requires a longer press to trigger the brew.  The lower processing clock means the timer reaches the threshold faster.  
