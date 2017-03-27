@@ -32,9 +32,8 @@ void brewCoffee(void);
 
 #define STACK_SIZE_MIN	128	/* usStackDepth	- the stack size DEFINED IN WORDS.*/
 
-// times are all in ms
-#define SHORT_PRESS 10
-#define LONG_PRESS 100
+#define SHORT_PRESS_THRESHOLD 10
+#define LONG_PRESS_THRESHOLD 100
 #define BLINK_TOGGLE 500
 
 // task delays in ms
@@ -124,11 +123,11 @@ void vButtonUpdate(void *pvParameters) {
 	for(;;) {		
 		if(STM_EVAL_PBGetState(BUTTON_USER)) {
 			debounce_count++;
-		} else if(debounce_count > LONG_PRESS) {
+		} else if(debounce_count > LONG_PRESS_THRESHOLD) {
 			brewCoffee();
 			debounce_count = 0;
 			vTaskDelay(200 / portTICK_RATE_MS);
-		} else if(debounce_count > SHORT_PRESS) {
+		} else if(debounce_count > SHORT_PRESS_THRESHOLD) {
 			selectNextCoffee();
 			debounce_count = 0;
 			vTaskDelay(200 / portTICK_RATE_MS);
