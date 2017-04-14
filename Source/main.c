@@ -47,7 +47,6 @@ void vPlaySound(void *);
 void vScheduler(void *);
 
 void selectNextCoffee(void);
-void brewCoffee(void);
 void brewCoffeeType(Coffee);
 
 const static Coffee INITIAL_COFFEE = ESPRESSO;
@@ -55,7 +54,6 @@ const static Coffee INITIAL_COFFEE = ESPRESSO;
 const static uint32_t PRIORITY_BREW = tskIDLE_PRIORITY + 1;
 const static uint32_t PRIORITY_SCHEDULER = tskIDLE_PRIORITY + 4;
 
-static xSemaphoreHandle xSoundSemaphore;
 static xSemaphoreHandle xBrewSemaphores[LEDn];
 static xSemaphoreHandle xTaskTableSemaphore;
 
@@ -155,10 +153,8 @@ Coffee getHighestPriorityTask() {
 	int i;
 	Coffee selectedTypeToBrew = DEFAULT_COFFEE;
 	int maxPriority = -1;
-	CoffeeTask task;	
 	
 	for(i = 0; i < LEDn; i++) {
-		task = taskTable[i];
 		if(taskTable[i].scheduled > 0 && taskTable[i].priority > maxPriority) {
 			maxPriority = taskTable[i].priority;
 			selectedTypeToBrew = taskTable[i].type;
@@ -242,7 +238,7 @@ void vButtonUpdate(void *pvParameters) {
 		if(STM_EVAL_PBGetState(BUTTON_USER)) {
 			debounce_count++;
 		} else if(debounce_count > LONG_PRESS_THRESHOLD) {
-			brewCoffee();
+			//brewCoffee();
 			debounce_count = 0;
 			vTaskDelay(200 / portTICK_RATE_MS);
 		} else if(debounce_count > SHORT_PRESS_THRESHOLD) {
