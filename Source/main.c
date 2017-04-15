@@ -22,8 +22,8 @@
 #define SAME_START_TIME
 //#define DIFFERENT_START_TIME
 
-#define FIXED_PRIORITY
-//#define EARLIEST_DEADLINE_FIRST
+//#define FIXED_PRIORITY
+#define EARLIEST_DEADLINE_FIRST
 //#define LEAST_LAXITY_FIRST
 
 #define STACK_SIZE_MIN	128	/* usStackDepth	- the stack size DEFINED IN WORDS.*/
@@ -133,13 +133,21 @@ void schedule_FixedPriority(Coffee *scheduled, uint16_t scheduledCount) {
 
 /* 
  * Set priorities in the taskTable using an earliest deadline first algorithm.
- */
-void schedule_EariestDeadlineFirst(Coffee *scheduled, uint16_t scheduledCount) {
+ */ 
+void schedule_EarliestDeadlineFirst(Coffee *scheduled, uint16_t scheduledCount) {
 	int i;
-	
+	int k;
+	int priority;
 	for(i = 0; i < scheduledCount; i++) {
-		// Set the priorities of each item in the taskTable here based on their deadlines
-		// Double check that we're calculating the deadlines properly, I'm not 100% its right.
+		priority = 4;
+		for(k = 0; k < scheduledCount; k++) { //loop through tasks to set the right priority based on deadline
+			if(i != k) {
+				if (taskTable[scheduled[i]].deadline > taskTable[scheduled[k]].deadline) {
+					priority--;
+				}
+			}
+		}
+		taskTable[scheduled[i]].priority = priority;
 	}
 }
 
@@ -207,8 +215,8 @@ void vScheduler(void *pvParameters) {
 		
 			#ifdef FIXED_PRIORITY
 			schedule_FixedPriority(scheduled, scheduledCount);
-			#elif EARLIEST_DEADLINE_FIRST
-			//schedule_EarliestDeadlineFirst(scheduled, scheduledCount);
+			#elif defined(EARLIEST_DEADLINE_FIRST)
+			schedule_EarliestDeadlineFirst(scheduled, scheduledCount);
 			#elif LEAST_LAXITY_FIRST
 			//schedule_LeastLaxityFirst(scheduled, scheduledCount);
 			#endif
