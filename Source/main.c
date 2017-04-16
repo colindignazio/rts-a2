@@ -22,8 +22,8 @@
 #define SAME_START_TIME
 //#define DIFFERENT_START_TIME
 
-//#define FIXED_PRIORITY
-#define EARLIEST_DEADLINE_FIRST
+#define FIXED_PRIORITY
+//#define EARLIEST_DEADLINE_FIRST
 //#define LEAST_LAXITY_FIRST
 
 #define STACK_SIZE_MIN	128	/* usStackDepth	- the stack size DEFINED IN WORDS.*/
@@ -38,23 +38,14 @@
 #define SCHEDULER_DELAY 1000
 
 void vButtonUpdate(void *);
-void vLedBlinkBlue(void *);
-void vLedBlinkRed(void *);
-void vLedBlinkGreen(void *);
-void vLedBlinkOrange(void *);
 void vBrewCoffeeType(void *);
-void vPlaySound(void *);
 void vScheduler(void *);
 
-void selectNextCoffee(void);
-void brewCoffeeType(Coffee);
-
 const static Coffee INITIAL_COFFEE = ESPRESSO;
-//const static uint32_t PRIORITY_BUTTON = tskIDLE_PRIORITY + 3;
+const static uint32_t PRIORITY_BUTTON = tskIDLE_PRIORITY + 4;
 const static uint32_t PRIORITY_BREW = tskIDLE_PRIORITY + 1;
-const static uint32_t PRIORITY_SCHEDULER = tskIDLE_PRIORITY + 4;
+const static uint32_t PRIORITY_SCHEDULER = tskIDLE_PRIORITY + 3;
 
-static xSemaphoreHandle xBrewSemaphores[LEDn];
 static xSemaphoreHandle xTaskTableSemaphore;
 
 static TaskHandle_t xBrewTasks[LEDn];
@@ -62,15 +53,20 @@ static uint32_t brewCounters[LEDn];
 
 static Coffee coffees[LEDn] = {LATTE, ESPRESSO, MOCHA, CAPPUCCINO};
 
+uint32_t missedDeadlines = 0;
+
 typedef struct {
-	int priority;
+	int32_t priority;
 	Coffee type;
 	uint32_t scheduled;
-	uint32_t deadline;
+	int32_t deadline;
+	int32_t remainingWork;
+	int32_t started;
+	int32_t startTime;
 } CoffeeTask;
 
-static CoffeeTask taskTable[LEDn] = {{0, LATTE, 0, 0},{0, ESPRESSO, 0, 0},{0, MOCHA, 0, 0},{0, CAPPUCCINO, 0, 0}};
-static int ticks = 0;
+static CoffeeTask taskTable[LEDn] = {{0, LATTE, 0, 0, 0, 0, 0},{0, ESPRESSO, 0, 0, 0, 0, 0},{0, MOCHA, 0, 0, 0, 0, 0},{0, CAPPUCCINO, 0, 0, 0, 0, 0}};
+static int32_t ticks = 0;
 
 //******************************************************************************
 int main(void) {
@@ -87,7 +83,7 @@ int main(void) {
 		to be preempt priority bits by calling 
 		NVIC_PriorityGroupConfig( NVIC_PriorityGroup_4 ); before the RTOS is started.
 	*/
-	int i;
+	int32_t i;
 	
 	NVIC_PriorityGroupConfig( NVIC_PriorityGroup_4 );
 	
@@ -103,17 +99,15 @@ int main(void) {
 	
 	// Create a brew task and semaphore for each Coffee type
 	for(i = 0; i < LEDn; i++) {
-		xBrewSemaphores[i] = xSemaphoreCreateBinary();
 		xTaskCreate( vBrewCoffeeType, (const char*)"Brew Type", 
 			STACK_SIZE_MIN, (void *)&coffees[i], PRIORITY_BREW, &xBrewTasks[i]);
 		vTaskSuspend(xBrewTasks[i]);
-		xSemaphoreGive(xBrewSemaphores[i]);
 	}
 	
 	xTaskCreate( vScheduler, (const char*)"Scheduler", 
 		STACK_SIZE_MIN, NULL, PRIORITY_SCHEDULER, NULL );
-	//xTaskCreate( vButtonUpdate, (const char*)"Button Update", 
-	//	STACK_SIZE_MIN, NULL, PRIORITY_BUTTON, NULL );
+	xTaskCreate( vButtonUpdate, (const char*)"Button Update", 
+		STACK_SIZE_MIN, NULL, PRIORITY_BUTTON, NULL );
 	vTaskStartScheduler();
 	
 	// Should not reach here
@@ -123,8 +117,8 @@ int main(void) {
 /* 
  * Set priorities in the taskTable using a fixed priority algorithm.
  */
-void schedule_FixedPriority(Coffee *scheduled, uint16_t scheduledCount) {
-	int i;
+void schedule_FixedPriority(Coffee *scheduled, uint32_t scheduledCount) {
+	int32_t i;
 	
 	for(i = 0; i < scheduledCount; i++) {
 		taskTable[scheduled[i]].priority = getCoffeePriority(scheduled[i]);
@@ -134,20 +128,26 @@ void schedule_FixedPriority(Coffee *scheduled, uint16_t scheduledCount) {
 /* 
  * Set priorities in the taskTable using an earliest deadline first algorithm.
  */ 
-void schedule_EarliestDeadlineFirst(Coffee *scheduled, uint16_t scheduledCount) {
-	int i;
-	int k;
-	int priority;
+void schedule_EarliestDeadlineFirst(Coffee *scheduled, uint32_t scheduledCount) {
+	int32_t i;
+	
 	for(i = 0; i < scheduledCount; i++) {
-		priority = 4;
-		for(k = 0; k < scheduledCount; k++) { //loop through tasks to set the right priority based on deadline
-			if(i != k) {
-				if (taskTable[scheduled[i]].deadline > taskTable[scheduled[k]].deadline) {
-					priority--;
-				}
-			}
-		}
-		taskTable[scheduled[i]].priority = priority;
+		// Make this negative so that the numerically smallest (aka earliest) deadline gets
+		// picked by getHighestPriorityTask
+		taskTable[scheduled[i]].priority = -(taskTable[scheduled[i]].deadline);
+	}
+}
+
+/* 
+ * Set priorities in the taskTable using a least laxity first algorithm.
+ */ 
+void schedule_LeastLaxityFirst(Coffee *scheduled, uint32_t scheduledCount) {
+	int32_t i;
+	
+	for(i = 0; i < scheduledCount; i++) {
+		// Make this negative so that the numerically smallest laxity gets
+		// picked by getHighestPriorityTask
+		taskTable[scheduled[i]].priority = -(taskTable[scheduled[i]].deadline - taskTable[scheduled[i]].remainingWork);
 	}
 }
 
@@ -158,12 +158,14 @@ void schedule_EarliestDeadlineFirst(Coffee *scheduled, uint16_t scheduledCount) 
  * This priority is calculated based on the scheduling algorithm.
  */
 Coffee getHighestPriorityTask() {
-	int i;
+	int32_t i;
 	Coffee selectedTypeToBrew = DEFAULT_COFFEE;
-	int maxPriority = -1;
+	int32_t maxPriority = 0x80000000; // Set to minimum 32 bit int
 	
 	for(i = 0; i < LEDn; i++) {
-		if(taskTable[i].scheduled > 0 && taskTable[i].priority > maxPriority) {
+		if(taskTable[i].scheduled > 0 && 
+				(taskTable[i].priority > maxPriority || 
+				(taskTable[i].priority == maxPriority && getCoffeePriority(taskTable[i].type) > getCoffeePriority(selectedTypeToBrew)))) {
 			maxPriority = taskTable[i].priority;
 			selectedTypeToBrew = taskTable[i].type;
 		}
@@ -177,87 +179,9 @@ Coffee getHighestPriorityTask() {
  * since we don't reset any counters and we don't play sound.
  */
 void pauseAllBrews() {
-	int i;
-	resetAllLEDs();
+	int32_t i;
 	for(i = 0; i < LEDn; i++) {
 		vTaskSuspend(xBrewTasks[i]);
-	}
-}
-
-/*
- * Run every second to reevaluate which coffee should be brewing depending
- * on each coffee tpye's deadline, period and priority.
- */
-void vScheduler(void *pvParameters) {
-	Coffee scheduled[LEDn];
-	uint16_t scheduledCount;
-	Coffee selectedCoffeeToBrew;
-	int i;
-	
-	for(;;) {
-		scheduledCount = 0;
-		if(xSemaphoreTake(xTaskTableSemaphore, 0)) {	
-
-			// Schedule coffees to brew if their period is reached
-			for(i = 0; i < LEDn; i++) {			
-				if(ticks % getCoffeePeriod(taskTable[i].type) == 0) {
-					taskTable[i].scheduled++;
-					taskTable[i].deadline = ticks + getCoffeeDeadline(taskTable[i].type);
-				}
-			}
-		
-			for(i = 0; i < LEDn; i++) {			
-				if(taskTable[i].scheduled > 0) {
-					scheduled[i] = taskTable[i].type;
-					scheduledCount++;
-				}
-			}
-		
-			#ifdef FIXED_PRIORITY
-			schedule_FixedPriority(scheduled, scheduledCount);
-			#elif defined(EARLIEST_DEADLINE_FIRST)
-			schedule_EarliestDeadlineFirst(scheduled, scheduledCount);
-			#elif LEAST_LAXITY_FIRST
-			//schedule_LeastLaxityFirst(scheduled, scheduledCount);
-			#endif
-		
-			selectedCoffeeToBrew = getHighestPriorityTask();
-		
-			if(selectedCoffeeToBrew != DEFAULT_COFFEE) {	
-				pauseAllBrews();
-				brewCoffeeType(selectedCoffeeToBrew);		
-			}
-		
-			ticks++;
-			xSemaphoreGive(xTaskTableSemaphore);
-			vTaskDelay( SCHEDULER_DELAY / portTICK_RATE_MS );
-		}
-	}
-}
-
-/* 
- * Poll the button for input. If a short click is detecting change the selection.
- * If a long click is selected begin brewing.
- */
-void vButtonUpdate(void *pvParameters) {
-	uint32_t debounce_count = 0;
-	
-	for(;;) {		
-		if(STM_EVAL_PBGetState(BUTTON_USER)) {
-			debounce_count++;
-		} else if(debounce_count > LONG_PRESS_THRESHOLD) {
-			//brewCoffee();
-			debounce_count = 0;
-			vTaskDelay(200 / portTICK_RATE_MS);
-		} else if(debounce_count > SHORT_PRESS_THRESHOLD) {
-			selectNextCoffee();
-			debounce_count = 0;
-			vTaskDelay(200 / portTICK_RATE_MS);
-		}
-		else {
-			debounce_count = 0;
-		}
-		vTaskDelay(BUTTON_DELAY / portTICK_RATE_MS);
 	}
 }
 
@@ -268,8 +192,12 @@ void endBrew(Coffee coffee) {
 	// clean up
 	brewCounters[coffee] = 0;
 	taskTable[coffee].scheduled--;
+	
+	if(ticks > taskTable[coffee].deadline) {
+		missedDeadlines++;
+	}
+	
 	turnOffLED(getLEDForCoffeeType(coffee));
-	xSemaphoreGive(xBrewSemaphores[coffee]);
 	
 	// play sound
 	prepareSound();
@@ -294,6 +222,10 @@ void vBrewCoffeeType(void *pvParameters) {
 		TM_DelayMillis(BLINK_TOGGLE);
 		brewCounters[coffeeType] += BLINK_TOGGLE;
 		
+		if(brewCounters[coffeeType] % (BLINK_TOGGLE * 2) == 0) {
+			taskTable[coffeeType].remainingWork--;
+		}
+		
 		if(brewCounters[coffeeType] >= getBrewDurations(coffeeType)) {
 			endBrew(coffeeType);
 		}
@@ -305,8 +237,90 @@ void vBrewCoffeeType(void *pvParameters) {
  * Begin/resume brewing a coffee type
  */
 void brewCoffeeType(Coffee coffee) {
-	resetAllLEDs();
 	vTaskResume(xBrewTasks[coffee]);
+}
+
+/*
+ * Run every second to reevaluate which coffee should be brewing depending
+ * on each coffee tpye's deadline, period and priority.
+ */
+void vScheduler(void *pvParameters) {
+	Coffee scheduled[LEDn];
+	int32_t scheduledCount;
+	Coffee selectedCoffeeToBrew;
+	int32_t i;
+	uint32_t missedDeadlinesCopy; // leaving this here for debugging/demo purposes
+	int32_t ticksSinceStart = -1;
+	
+	for(;;) {
+		if(xSemaphoreTake(xTaskTableSemaphore, 0)) {	
+			missedDeadlinesCopy = missedDeadlines;
+			
+			// Schedule coffees to brew if their period is reached
+			for(i = 0; i < LEDn; i++) {			
+				if(taskTable[i].started && 
+					((ticks - taskTable[i].startTime) % getCoffeePeriod(taskTable[i].type) == 0)) {
+					if(ticksSinceStart == -1) {
+						ticksSinceStart = 0;
+					}
+					taskTable[i].scheduled++;
+					taskTable[i].deadline = ticks + getCoffeeDeadline(taskTable[i].type);
+					taskTable[i].remainingWork = getBrewDurations(taskTable[i].type) / 1000; // Convert ms to s
+				}
+			}
+		
+			scheduledCount = 0;
+			for(i = 0; i < LEDn; i++) {			
+				if(taskTable[i].scheduled > 0) {
+					scheduled[scheduledCount] = taskTable[i].type;
+					scheduledCount++;
+				}
+			}
+		
+#ifdef FIXED_PRIORITY
+			schedule_FixedPriority(scheduled, scheduledCount);
+#elif defined(EARLIEST_DEADLINE_FIRST)
+			schedule_EarliestDeadlineFirst(scheduled, scheduledCount);
+#elif defined(LEAST_LAXITY_FIRST)
+			schedule_LeastLaxityFirst(scheduled, scheduledCount);
+#endif
+		
+			selectedCoffeeToBrew = getHighestPriorityTask();
+		
+			if(selectedCoffeeToBrew != DEFAULT_COFFEE) {	
+				pauseAllBrews();
+				brewCoffeeType(selectedCoffeeToBrew);		
+			}
+		
+			ticks++;
+			if(ticksSinceStart != -1) {
+				ticksSinceStart++;
+			}
+			
+			// Set a break point here to see how many deadlines we missed after 100 cycles.
+			if(ticksSinceStart > 100) {
+				i = missedDeadlinesCopy; // I know what you're thinking, we need to use missedDeadlinesCopy or else we can't view it in the debugger.
+				while(1);  
+			}
+			
+			xSemaphoreGive(xTaskTableSemaphore);
+			vTaskDelay( SCHEDULER_DELAY / portTICK_RATE_MS );
+		}
+	}
+}
+
+void startCoffeeType(Coffee type) {
+	taskTable[type].started = 1;
+	taskTable[type].startTime = ticks;
+	turnOffLED(getLEDForCoffeeType(type));
+}
+
+void startAllCoffees() {
+	int32_t i;
+	
+	for(i = 0; i < LEDn; i++) {
+		startCoffeeType(coffees[i]);
+	}
 }
 
 /*
@@ -314,8 +328,46 @@ void brewCoffeeType(Coffee coffee) {
  */
 void selectNextCoffee() {
 	Led_TypeDef selectedLED;
-	while(uxSemaphoreGetCount(xBrewSemaphores[changeSelected()]) < 1);
+	uint16_t count = 0;
+	while(taskTable[changeSelected()].started == 1) {
+		if(++count > 4) {
+			return;
+		}
+	}
 	selectedLED = getLEDForSelected();
 	resetAllLEDs();
 	turnOnLED(selectedLED);
+}
+
+/* 
+ * Poll the button for input. If a short click is detecting change the selection.
+ * If a long click is selected begin brewing.
+ */
+void vButtonUpdate(void *pvParameters) {
+	uint32_t debounce_count = 0;
+	
+	for(;;) {		
+		if(STM_EVAL_PBGetState(BUTTON_USER)) {
+			debounce_count++;
+			TM_DelayMillis(10);
+		} else if(debounce_count > LONG_PRESS_THRESHOLD) {
+#ifdef DIFFERENT_START_TIME
+			startCoffeeType(getSelectedCoffee());
+#endif
+			debounce_count = 0;
+			vTaskDelay(200 / portTICK_RATE_MS);
+		} else if(debounce_count > SHORT_PRESS_THRESHOLD) {
+#ifdef SAME_START_TIME
+			startAllCoffees();
+#elif defined(DIFFERENT_START_TIME)
+			selectNextCoffee();
+#endif
+			debounce_count = 0;
+			vTaskDelay(200 / portTICK_RATE_MS);
+		}
+		else {
+			debounce_count = 0;
+			vTaskDelay(BUTTON_DELAY / portTICK_RATE_MS);
+		}
+	}
 }

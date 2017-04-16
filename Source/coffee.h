@@ -13,12 +13,12 @@ typedef enum {
 
 void initializeCoffee(Coffee);
 Coffee changeSelected(void);
-Led_TypeDef getCoffeeLED(Coffee);
 Led_TypeDef getLEDForSelected(void);
 Led_TypeDef getLEDForCoffeeType(Coffee);
 uint32_t getBrewDurations(Coffee);
 uint32_t getCoffeePriority(Coffee);
 uint32_t getCoffeePeriod(Coffee);
 uint32_t getCoffeeDeadline(Coffee);
+Coffee getSelectedCoffee(void);
 
 #endif

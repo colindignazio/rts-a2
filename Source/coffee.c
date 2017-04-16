@@ -8,7 +8,7 @@
 #define PRIORITY_LATTE 1
 #define PRIORITY_ESPRESSO 3
 #define PRIORITY_MOCHA 2
-#define PRIORITY_CAPPUCCINO 4
+#define PRIORITY_CAPPUCCINO 2
 
 #define PERIOD_LATTE 30
 #define PERIOD_ESPRESSO 20
@@ -18,12 +18,16 @@
 #define DEADLINE_LATTE 10
 #define DEADLINE_ESPRESSO 5
 #define DEADLINE_MOCHA 15
-#define DEADLINE_CAPPUCCINO 20
+#define DEADLINE_CAPPUCCINO 10
 
 static Coffee selected;
 
 void initializeCoffee(Coffee defaultType) {
 	selected = defaultType;
+}
+
+Coffee getSelectedCoffee() {
+	return selected;
 }
 
 Coffee changeSelected() {
@@ -76,7 +80,7 @@ uint32_t getCoffeePriority(Coffee type) {
 		case CAPPUCCINO:
 			return PRIORITY_CAPPUCCINO;
 		default:
-			return -1;
+			return 0;
 	}
 }
 
@@ -91,7 +95,7 @@ uint32_t getCoffeePeriod(Coffee type) {
 		case CAPPUCCINO:
 			return PERIOD_CAPPUCCINO;
 		default:
-			return -1;
+			return 0;
 	}
 }
 
@@ -106,6 +110,6 @@ uint32_t getCoffeeDeadline(Coffee type) {
 		case CAPPUCCINO:
 			return DEADLINE_CAPPUCCINO;
 		default:
-			return -1;
+			return 0;
 	}
 }
