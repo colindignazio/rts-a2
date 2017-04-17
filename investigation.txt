@@ -1,0 +1,25 @@
+Analysis:
+We judged the performance of our algorithms based on how many deadlines were missed.
+
+Missed deadlines after 100 cycles with all Coffees starting at tick 0:
+Fixed Priority First: 4
+Earliest Deadline First: 2
+Least Laxity First: 3
+
+We expected FPS to perform poorly since it does not take deadlines into account at all when scheduling. FPS only looks at the priority of each task and starts the one with the highest priority. We were surprised to see that EDL outperformed LLF. We had expected LLF to be the best performing of all the algorithms since it is the most complicated, however one additional deadline was missed by LLF when compared EDF. We decided to try running the tests again over 200 cycles.
+
+Missed deadlines after 200 cycles with all Coffees starting at tick 0:
+Fixed Priority First: 7
+Earliest Deadline First: 4
+Least Laxity First: 6
+
+The missed deadlines after 200 cycles confirm that EDF scheduling gives us the best performance with this combination of periods, start times and deadlines.
+
+We then theorized that LLF scheduling might outperform EDF if we only ran three coffees instead of four. We decided to schedule espresso (blue), latte (green) and mocha(red) after after each other using the second initialization option and run for 200 ticks.
+
+Missed deadlines after 200 cycles with three coffees:
+Fixed Priority First: 0
+Earliest Deadline First: 0
+Least Laxity First: 0
+
+With this set up, none of the alglorithms missed any deadlines. This is likely because the scheduler just wasn't busy enough for a missed deadline to occur.

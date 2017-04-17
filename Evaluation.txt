@@ -1,5 +1,0 @@
-i)  With pre-emptive scheduling, the user can select a coffee to type to brew while another is already brewing. This is because our "Button Update" task has higher priority than any of our "Brew Coffee Type" tasks. Because of this, FreeRTOS preempts the brew task to check the status of the button, then goes back to the brew task. With cooperative scheduling, once a task begins brewing the user will not be able to perform any actions until it completes. This is because with cooperative scheduling, tasks run until they either complete or voluntarily yield the CPU. Since our "Brew Coffee Type" task uses a "busy wait" loop while running, it never yields the CPU and therefore won't stop running until it completes.
-
-ii) There was no noticeable difference in the system's performance when switching between having time slicing on and having time slicing off.
-
-iii) Lowering the processer's clock speed decreased the amount of time needed for a short click and a long click to be detected by the system. This is because with a slower clock speed the thresholds that we defined for these clicks (SHORT_PRESS_THRESHOLD and LONG_PRESS_THRESHOLD) get reached faster.
